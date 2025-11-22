@@ -1,5 +1,5 @@
 build:
-	gcc chat.c -o chat
+	gcc chat.c -o chat -lrt -pthread
 
 run:
 	./chat
