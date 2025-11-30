@@ -61,3 +61,6 @@
 **Χρήση:**
 ```bash
 valgrind --leak-check=full ./chat -a -k 1234
+
+## To do
+
