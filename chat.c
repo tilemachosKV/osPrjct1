@@ -11,11 +11,13 @@
 #include <pthread.h>      // For thread use
 
 #define SCREEN_WIDTH 80
+FILE *recv_fp = NULL;
+pthread_t receiver, sender;
 
 // checks whether the user input is correct
 int checkInput(int argc, char *argv[], const char *params[])
 {
-  if (argc != 4)
+  if (argc != 5)
     return 0;
   if (strcmp(argv[1], params[0]) != 0 && strcmp(argv[1], params[1]) != 0)
     return 0;
@@ -23,30 +25,6 @@ int checkInput(int argc, char *argv[], const char *params[])
     return 0;
 
   return 1;
-}
-
-void printMessage(char *name, char *msg, int is_me)
-{
-  struct winsize w;
-  // Get current terminal width
-  ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
-  int width = w.ws_col;
-
-  if (is_me)
-  {
-    // RIGHT ALIGN
-    // %*s takes a width argument and pads the string with spaces to the left
-    printf("%*s\n", width, name);
-    printf("%*s\n", width, msg);
-  }
-  else
-  {
-    // LEFT ALIGN
-    printf("%s\n", name);
-    printf("%s\n", msg);
-  }
-
-  printf("\n");
 }
 
 void terminate(SharedMemory *sharedMemory, char *name, int shm_fd, int dialogueId)
@@ -57,6 +35,7 @@ void terminate(SharedMemory *sharedMemory, char *name, int shm_fd, int dialogueI
   if (sharedMemory->active_dialogues_count == 1 && mypid == sharedMemory->dialogues[dialogueId].message.sender_pid)
     lastProcess++;
 
+  fclose(recv_fp);
   munmap(sharedMemory, SHM_SIZE);
   close(shm_fd);
   if (lastProcess)
@@ -93,7 +72,7 @@ SharedMemory *init(int argc, char *argv[], int *shm_fd)
   }
 
   someMemory = (SharedMemory *)ptr;
-  
+
   // Initialize shared memory to zero
   memset(someMemory, 0, SHM_SIZE);
   sem_init(&someMemory->shm_sem, 1, 1);
@@ -109,31 +88,6 @@ SharedMemory *init(int argc, char *argv[], int *shm_fd)
   someMemory->dialogues[0].message.times_read = 0;
 
   return someMemory;
-
-  // // 4. Write to the shared memory
-  // printf("Enter messages to write (type 'DONE' to quit):\n");
-  // while (strncmp(userInput, "DONE", 5) != 0)
-  // { // Use 5 to check "DONE\0"
-  //   printf("NEW MESSAGE: ");
-  //   fflush(stdout);
-
-  //   int scan_result = scanf("%127s", userInput);
-  //   if (scan_result != 1)
-  //   {
-  //     // Handle End-of-File (Ctrl+D) or read error
-  //     break;
-  //   }
-
-  //   strcpy(someMemory->dialogues[0].message.payload, userInput);
-  //   someMemory->dialogues[0].message.times_read = 0;
-  //   sem_post(&someMemory->dialogues[0].message.access);
-  // }
-
-  // // 5. Unmap the shared memory
-  // munmap(ptr, SHM_SIZE);
-
-  // // 6. Close the file descriptor
-  // close(shm_fd);
 }
 
 SharedMemory *attach(int argc, char *argv[], int *shm_fd)
@@ -158,37 +112,28 @@ SharedMemory *attach(int argc, char *argv[], int *shm_fd)
   }
 
   return (SharedMemory *)ptr;
-
-  // // 3. Read from the shared memory
-  // while (strncmp(someMemory->dialogues[0].message.payload, "DONE", 4) != 0)
-  // {
-  //   sem_wait(&someMemory->dialogues[0].message.access);
-  //   printf("MESSAGE: '%s'\n", someMemory->dialogues[0].message.payload);
-  // }
-  // printf("Last read from shared memory: '%s'\n", someMemory->dialogues[0].message.payload);
-
-  // // 4. Unmap the shared memory
-  // munmap(ptr, SHM_SIZE);
-
-  // // 5. Close the file descriptor
-  // close(shm_fd);
-
-  // // 6. Remove the shared memory object
-  // // Only the reader (or a dedicated cleanup process) should do this
-  // shm_unlink(name);
 }
 
 void *threadReceive(void *arg)
 {
   SharedMemory *sharedMemory = (SharedMemory *)arg;
 
-  while (strncmp(sharedMemory->dialogues[0].message.payload, "DONE", 5) != 0)
+  while (strncmp(sharedMemory->dialogues[0].message.payload, "DONE", 4) != 0)
   {
     sem_wait(&sharedMemory->dialogues[0].message.access);
-    printf("MESSAGE: '%s'\n", sharedMemory->dialogues[0].message.payload);
+    if (sharedMemory->dialogues[0].message.sender_pid == getpid())
+    {
+      fprintf(recv_fp, "(ME): '%s'\n", sharedMemory->dialogues[0].message.payload);
+    }
+    else
+    {
+      fprintf(recv_fp, "(%lu): '%s'\n", (unsigned long)sharedMemory->dialogues[0].message.sender_pid, sharedMemory->dialogues[0].message.payload);
+    }
+    fflush(recv_fp);
+    sleep(1);
   }
+  pthread_cancel(sender);
   printf("Last read from shared memory: '%s'\n", sharedMemory->dialogues[0].message.payload);
-
   return NULL;
 }
 
@@ -197,21 +142,23 @@ void *threadSend(void *arg)
   SharedMemory *sharedMemory = (SharedMemory *)arg;
   char userInput[128];
 
-  printf("Enter messages to write (type 'DONE' to quit):\n");
-  while (strncmp(userInput, "DONE", 5) != 0)
+  printf("Enter messages to send (type 'DONE' to quit):\n");
+  while (strncmp(userInput, "DONE", 4) != 0)
   { // Use 5 to check "DONE\0"
     printf("NEW MESSAGE: ");
     fflush(stdout);
 
-    int scan_result = scanf("%127s", userInput);
-    if (scan_result != 1)
+    char *scan_result = fgets(userInput, sizeof(userInput), stdin);
+    if (scan_result == NULL)
     {
       // Handle End-of-File (Ctrl+D) or read error
+      printf("Error reading input or EOF reached\n");
       break;
     }
 
     strcpy(sharedMemory->dialogues[0].message.payload, userInput);
     sharedMemory->dialogues[0].message.times_read = 0;
+    sharedMemory->dialogues[0].message.sender_pid = getpid();
     sem_post(&sharedMemory->dialogues[0].message.access);
     sem_post(&sharedMemory->dialogues[0].message.access);
   }
@@ -223,8 +170,19 @@ int main(int argc, char *argv[])
 {
   int shm_fd, dialogue = 0;
   const char *params[] = {"-i", "-a", "-k"};
+  const char *fileName = argv[4];
   SharedMemory *sharedMemory;
-  pthread_t receiver, sender;
+
+  // Open and Check if files opened successfully
+  recv_fp = fopen(fileName, "a");
+  if (!recv_fp)
+  {
+    perror("Error opening log files");
+    // Clean up if one file opened before the error
+    if (recv_fp)
+      fclose(recv_fp);
+    exit(EXIT_FAILURE);
+  }
 
   if (!checkInput(argc, argv, params))
   {

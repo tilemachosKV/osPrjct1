@@ -5,4 +5,4 @@ run:
 	./chat
 
 test:
-	valgrind --track-origins=yes --leak-check=yes ./chat -i -k test
+	valgrind --track-origins=yes --leak-check=yes ./chat -i -k test receive.log
