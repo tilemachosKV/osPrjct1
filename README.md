@@ -60,7 +60,4 @@
 
 **Χρήση:**
 ```bash
-valgrind --leak-check=full ./chat -a -k 1234
-
-## To do
-    1. Create the receiver file to track messages sent
+valgrind --leak-check=full ./chat -a -k 1234 receive.txt

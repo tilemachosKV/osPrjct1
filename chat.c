@@ -142,9 +142,9 @@ void *threadSend(void *arg)
   SharedMemory *sharedMemory = (SharedMemory *)arg;
   char userInput[128];
 
-  printf("Enter messages to send (type 'DONE' to quit):\n");
-  while (strncmp(userInput, "DONE", 4) != 0)
-  { // Use 5 to check "DONE\0"
+  printf("Enter messages to send (type 'TERMINATE' to quit):\n");
+  while (strncmp(userInput, "TERMINATE", 9) != 0)
+  {
     printf("NEW MESSAGE: ");
     fflush(stdout);
 
